@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Build outputs
+NoNoTurtle
+*.app/
+*.o
+*.dSYM/
+build/
+DerivedData/
+
+# Temporary files
+.module-cache/
+*.tmp
+*.log

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NoNoTurtle</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="title-group">
+        <span class="app-title">NoNoTurtle</span>
+        <span class="app-subtitle">바른 목 정렬 도우미</span>
+      </div>
+      <button id="quit-btn" class="icon-btn" title="앱 종료">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"></path>
+        </svg>
+      </button>
+    </header>
+
+    <!-- Canvas Animation Area -->
+    <div class="canvas-card">
+      <canvas id="posture-canvas" width="280" height="200"></canvas>
+      <div class="status-badge" id="status-badge">
+        <span class="status-dot"></span>
+        <span id="status-text">바른 자세 유지 중</span>
+      </div>
+    </div>
+
+    <!-- Timer Control Section -->
+    <div class="card timer-card">
+      <div class="card-row">
+        <div class="card-label">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span>자세 개선 타이머</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="timer-toggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <!-- Timer Active Panel -->
+      <div id="timer-panel" class="timer-panel hidden">
+        <div class="duration-buttons">
+          <button class="dur-btn" data-minutes="15">15분</button>
+          <button class="dur-btn active" data-minutes="30">30분</button>
+          <button class="dur-btn" data-minutes="45">45분</button>
+          <button class="dur-btn" data-minutes="60">60분</button>
+        </div>
+
+        <div class="countdown-row">
+          <span class="countdown-label">다음 교정 알림까지</span>
+          <span class="countdown-time" id="countdown-display">30:00</span>
+        </div>
+
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progress-fill"></div>
+        </div>
+        <p class="timer-note">⏱️ 설정 시간에 걸쳐 서서히 거북목으로 변화하며, 완료 시 알림이 울립니다.</p>
+      </div>
+
+      <!-- Timer Inactive Hint -->
+      <div id="timer-hint" class="timer-hint">
+        <span>💡 타이머 꺼짐: 정자세 ↔ 거북목 느린 순환 애니메이션 (알림 없음)</span>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="action-buttons">
+      <button id="reset-btn" class="btn btn-secondary">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="1 4 1 10 7 10"></polyline>
+          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+        </svg>
+        <span>자세 재정렬</span>
+      </button>
+      <button id="exercise-btn" class="btn btn-primary">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="5 3 19 12 5 21 5 3"></polygon>
+        </svg>
+        <span>30초 턱 당기기</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 30초 턱 당기기 모달 -->
+  <div id="exercise-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>🧘‍♂️ 30초 턱 당기기 (Chin Tuck)</h3>
+        <button id="close-modal-btn" class="icon-btn">✕</button>
+      </div>
+      <canvas id="exercise-canvas" width="240" height="170"></canvas>
+      <div class="exercise-info">
+        <div id="exercise-step-title" class="exercise-title">준비되셨나요?</div>
+        <div id="exercise-step-desc" class="exercise-desc">의자에 허리를 펴고 턱을 가볍게 당길 준비를 하세요</div>
+        <div id="exercise-timer" class="exercise-timer"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="start-exercise-btn" class="btn btn-primary btn-block">시작하기</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
