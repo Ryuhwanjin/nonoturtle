@@ -36,6 +36,18 @@ const exerciseStepDesc = document.getElementById('exercise-step-desc');
 const exerciseTimer = document.getElementById('exercise-timer');
 let exerciseState = { active: false, step: 0, rep: 1, count: 5, progress: 0.0, timer: null };
 
+// 네이티브 동기화 헬퍼
+function syncToNative() {
+  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native) {
+    window.webkit.messageHandlers.native.postMessage({
+      action: 'syncTimerState',
+      timerActive: isTimerActive,
+      totalSeconds: durationMinutes * 60,
+      remainingSeconds: remainingSeconds
+    });
+  }
+}
+
 // 1. 사람 옆모습 그리기 (Canvas 렌더러)
 function drawHumanSideProfile(c, p, size) {
   const w = size.width;
@@ -44,7 +56,6 @@ function drawHumanSideProfile(c, p, size) {
 
   const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   
-  // 상태 색상
   let color = '#34c759'; // 초록
   let colorText = '바른 자세 유지 중';
   if (p < 0.35) {
@@ -55,7 +66,7 @@ function drawHumanSideProfile(c, p, size) {
     colorText = '머리가 앞으로 나오고 있어요';
   }
 
-  // 1. 수직 기준선 (귀-어깨가 일치해야 하는 Plumb Line)
+  // 1. 수직 기준선 (Plumb Line)
   const shoulderX = w * 0.44;
   c.save();
   c.setLineDash([4, 4]);
@@ -68,10 +79,9 @@ function drawHumanSideProfile(c, p, size) {
   c.restore();
 
   // 2. 좌표 계산
-  // progress: 1.0(바른자세) -> 0.0(거북목)
   const forwardShift = (1.0 - p) * 38.0;
   const downShift = (1.0 - p) * 8.0;
-  const chinLift = (1.0 - p) * 8.0; // 거북목일 때 턱이 앞으로 들림
+  const chinLift = (1.0 - p) * 8.0;
 
   const headCenterX = shoulderX + forwardShift;
   const headCenterY = h * 0.32 + downShift;
@@ -87,16 +97,13 @@ function drawHumanSideProfile(c, p, size) {
   c.shadowBlur = 8;
 
   c.beginPath();
-  // 뒤통수 시작
   const headBackX = headCenterX - 18;
   const headBackY = headCenterY + 4;
   c.moveTo(headBackX, headBackY);
 
-  // 목 곡선
   const neckControlX = shoulderX - 10 + (1.0 - p) * 20.0;
   c.quadraticCurveTo(neckControlX, h * 0.50, shoulderX - 6, shoulderY - 8);
 
-  // 등(흉추) 곡선 (거북목일수록 뒤로 불룩 튀어나옴)
   const backBulge = (1.0 - p) * 16.0;
   c.quadraticCurveTo(shoulderX - 22 - backBulge, h * 0.82, shoulderX - 10, h * 0.96);
   c.stroke();
@@ -105,33 +112,24 @@ function drawHumanSideProfile(c, p, size) {
   // 4. 머리 및 얼굴 옆모습 실루엣
   c.save();
   c.beginPath();
-  // 뒤통수
   c.moveTo(headCenterX - 22, headCenterY);
-  // 정수리
   c.bezierCurveTo(headCenterX - 22, headCenterY - 24, headCenterX - 12, headCenterY - 32, headCenterX - 2, headCenterY - 32);
-  // 이마
   c.bezierCurveTo(headCenterX + 10, headCenterY - 32, headCenterX + 18, headCenterY - 20, headCenterX + 18, headCenterY - 14);
-  // 콧대
   c.lineTo(headCenterX + 26, headCenterY - 2);
   c.lineTo(headCenterX + 18, headCenterY + 4);
-  // 입술 & 턱
   const chinX = headCenterX + 16 + chinLift;
   const chinY = headCenterY + 18 - chinLift * 0.4;
   c.lineTo(headCenterX + 19, headCenterY + 9);
   c.lineTo(chinX, chinY);
-  // 턱밑 & 목 앞선
   const throatX = headCenterX - 2 + chinLift * 0.7;
   const throatY = headCenterY + 22;
   c.lineTo(throatX, throatY);
-  // 가슴 앞쪽으로 연결
   c.quadraticCurveTo(throatX + 4, throatY + 16, shoulderX + 16, shoulderY);
   c.lineTo(shoulderX - 6, shoulderY);
   c.closePath();
 
-  // 면 채우기
   c.fillStyle = color + '2a';
   c.fill();
-  // 테두리
   c.strokeStyle = color;
   c.lineWidth = 3;
   c.stroke();
@@ -165,7 +163,6 @@ function drawHumanSideProfile(c, p, size) {
     c.lineTo(shoulderX, earY);
     c.stroke();
 
-    // 이탈 거리 텍스트
     const cm = ((1.0 - p) * 5.0).toFixed(1);
     const textX = (earX + shoulderX) / 2;
     const textY = earY - 8;
@@ -185,27 +182,18 @@ function render() {
   const result = drawHumanSideProfile(ctx, currentProgress, { width: 280, height: 180 });
   statusBadge.style.color = result.color;
   statusText.textContent = result.colorText;
-
-  // 네이티브 메뉴바 아이콘 실시간 업데이트 통지 (초당 몇 회로 스로틀링 가능)
-  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native) {
-    window.webkit.messageHandlers.native.postMessage({
-      action: 'updateIcon',
-      progress: currentProgress,
-      timerActive: isTimerActive
-    });
-  }
 }
 
 // 타이머 미설정 시: 8초 동안 정자세 ↔ 거북목 왕복 루프
 function startIdleLoop() {
   cancelAnimationFrame(idleAnimationId);
   idleStartTime = Date.now();
+  syncToNative();
   
   function loop() {
     if (isTimerActive || exerciseState.active) return;
     const elapsed = Date.now() - idleStartTime;
     const angle = (elapsed / IDLE_PERIOD) * Math.PI * 2;
-    // Cos: 1 -> -1 -> 1 -> 변환: 1.0 -> 0.0 -> 1.0
     currentProgress = (Math.cos(angle) + 1.0) / 2.0;
     render();
     idleAnimationId = requestAnimationFrame(loop);
@@ -225,6 +213,7 @@ function startTimer() {
   currentProgress = 1.0;
   updateTimerUI();
   render();
+  syncToNative();
 
   clearInterval(timerInterval);
   timerInterval = setInterval(() => {
@@ -233,12 +222,13 @@ function startTimer() {
       currentProgress = remainingSeconds / (durationMinutes * 60);
       updateTimerUI();
       render();
+      syncToNative();
     } else {
       clearInterval(timerInterval);
       currentProgress = 0.0;
       updateTimerUI();
       render();
-      // 알림 발송
+      syncToNative();
       notifyUser();
     }
   }, 1000);
@@ -247,6 +237,7 @@ function startTimer() {
 function stopTimer() {
   clearInterval(timerInterval);
   timerInterval = null;
+  syncToNative();
   startIdleLoop();
 }
 
@@ -301,6 +292,9 @@ resetBtn.addEventListener('click', () => {
   } else {
     currentProgress = 1.0;
     idleStartTime = Date.now();
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.native) {
+      window.webkit.messageHandlers.native.postMessage({ action: 'resetPosture' });
+    }
     render();
   }
 });
@@ -338,7 +332,6 @@ startExerciseBtn.addEventListener('click', () => {
     stopIdleLoop();
     startExerciseCycle();
   } else if (exerciseState.step === 3) {
-    // 완료
     exerciseModal.classList.add('hidden');
     if (isTimerActive) {
       startTimer();
@@ -351,10 +344,10 @@ startExerciseBtn.addEventListener('click', () => {
 });
 
 function startExerciseCycle() {
-  exerciseState.step = 1; // 턱 당기기
+  exerciseState.step = 1;
   exerciseState.rep = 1;
   exerciseState.count = 5;
-  exerciseState.progress = 1.0; // 턱 완전히 당김
+  exerciseState.progress = 1.0;
   updateExerciseStepUI();
 
   clearInterval(exerciseState.timer);
@@ -364,19 +357,16 @@ function startExerciseCycle() {
       updateExerciseStepUI();
     } else {
       if (exerciseState.step === 1) {
-        // 턱 당기기 -> 휴식
         if (exerciseState.rep < 3) {
           exerciseState.step = 2;
           exerciseState.count = 3;
           exerciseState.progress = 0.5;
         } else {
-          // 3회 모두 완료
           exerciseState.step = 3;
           clearInterval(exerciseState.timer);
           exerciseState.progress = 1.0;
         }
       } else if (exerciseState.step === 2) {
-        // 휴식 -> 다음 회차 턱 당기기
         exerciseState.rep++;
         exerciseState.step = 1;
         exerciseState.count = 5;

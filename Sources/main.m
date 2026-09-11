@@ -6,61 +6,161 @@
 @property (strong, nonatomic) NSStatusItem *statusItem;
 @property (strong, nonatomic) NSPopover *popover;
 @property (strong, nonatomic) WKWebView *webView;
+
+// 네이티브 애니메이션 & 타이머 상태
+@property (strong, nonatomic) NSTimer *nativeAnimTimer;
+@property (assign, nonatomic) double currentProgress; // 1.0 (정자세) ~ 0.0 (거북목)
+@property (assign, nonatomic) BOOL isTimerActive;
+@property (assign, nonatomic) NSTimeInterval totalTimerSeconds;
+@property (assign, nonatomic) NSTimeInterval remainingSeconds;
+@property (assign, nonatomic) NSTimeInterval idleElapsed;
 @end
 
 @implementation AppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
-    // Dock 아이콘 숨기기 (순수 상단 메뉴바 앱)
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
 
-    // 알림 권한 요청
+    self.currentProgress = 1.0;
+    self.isTimerActive = NO;
+    self.idleElapsed = 0.0;
+    self.totalTimerSeconds = 30 * 60;
+    self.remainingSeconds = self.totalTimerSeconds;
+
+    // 알림 권한
     UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
     [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound)
                           completionHandler:^(BOOL granted, NSError * _Nullable error) {}];
 
-    // Status Item 생성
+    // Status Item 설정
     self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSSquareStatusItemLength];
     NSStatusBarButton *button = self.statusItem.button;
     if (button) {
         button.target = self;
         button.action = @selector(togglePopover:);
-        [self updateMenuBarIconWithProgress:1.0 isTimerActive:NO];
     }
 
-    // WKWebView 구성
+    // WKWebView 및 Popover
     WKUserContentController *userContentController = [[WKUserContentController alloc] init];
     [userContentController addScriptMessageHandler:self name:@"native"];
 
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
     config.userContentController = userContentController;
-    [config.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
 
     self.webView = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 320, 480) configuration:config];
     [self.webView setValue:@NO forKey:@"drawsBackground"];
 
-    // index.html 로드
     NSString *bundlePath = [[NSBundle mainBundle] resourcePath];
     NSString *htmlPath = [bundlePath stringByAppendingPathComponent:@"web/index.html"];
     if (![[NSFileManager defaultManager] fileExistsAtPath:htmlPath]) {
-        // 개발 중 로컬 실행 경로 지원
-        htmlPath = [[NSBundle mainBundle] pathForResource:@"index" ofType:@"html" inDirectory:@"web"];
-        if (!htmlPath) {
-            NSString *cwd = [[NSFileManager defaultManager] currentDirectoryPath];
-            htmlPath = [cwd stringByAppendingPathComponent:@"Sources/web/index.html"];
-        }
+        NSString *cwd = [[NSFileManager defaultManager] currentDirectoryPath];
+        htmlPath = [cwd stringByAppendingPathComponent:@"Sources/web/index.html"];
     }
     NSURL *fileURL = [NSURL fileURLWithPath:htmlPath];
     [self.webView loadFileURL:fileURL allowingReadAccessToURL:[fileURL URLByDeletingLastPathComponent]];
 
-    // NSPopover 설정
     self.popover = [[NSPopover alloc] init];
     self.popover.contentSize = NSMakeSize(320, 480);
     self.popover.behavior = NSPopoverBehaviorTransient;
     
-    NSViewController *viewController = [[NSViewController alloc] init];
-    viewController.view = self.webView;
-    self.popover.contentViewController = viewController;
+    NSViewController *vc = [[NSViewController alloc] init];
+    vc.view = self.webView;
+    self.popover.contentViewController = vc;
+
+    // 네이티브 상단바 애니메이션 타이머 시작 (초당 25회 갱신: 팝오버 닫혀있어도 항상 동작!)
+    [self startNativeAnimationLoop];
+}
+
+- (void)startNativeAnimationLoop {
+    [self.nativeAnimTimer invalidate];
+    // 0.04초(25fps) 주기로 실행하여 부드럽고 전력 효율적인 상단바 애니메이션
+    self.nativeAnimTimer = [NSTimer scheduledTimerWithTimeInterval:0.04
+                                                            target:self
+                                                          selector:@selector(onNativeAnimTick)
+                                                          userInfo:nil
+                                                           repeats:YES];
+    [[NSRunLoop currentRunLoop] addTimer:self.nativeAnimTimer forMode:NSRunLoopCommonModes];
+}
+
+- (void)onNativeAnimTick {
+    if (self.isTimerActive) {
+        // 타이머 동작 중: 시간 경과에 비례하여 거북목으로 서서히 변화
+        if (self.totalTimerSeconds > 0) {
+            self.currentProgress = MAX(0.0, MIN(1.0, self.remainingSeconds / self.totalTimerSeconds));
+        }
+    } else {
+        // 타이머 꺼짐 (루프 모드): 8초 주기로 정자세(1.0) <-> 거북목(0.0) 오감
+        self.idleElapsed += 0.04;
+        double angle = (self.idleElapsed / 8.0) * 2.0 * M_PI;
+        self.currentProgress = (cos(angle) + 1.0) / 2.0; // 1.0 -> 0.0 -> 1.0
+    }
+
+    [self drawMenuBarIcon];
+}
+
+- (void)drawMenuBarIcon {
+    double p = self.currentProgress; // 1.0 = 바른 자세, 0.0 = 거북목
+    BOOL timerActive = self.isTimerActive;
+
+    NSImage *image = [NSImage imageWithSize:NSMakeSize(22, 22) flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
+        NSColor *color = [NSColor controlTextColor];
+        if (timerActive) {
+            if (p > 0.65) {
+                color = [NSColor controlTextColor];
+            } else if (p > 0.35) {
+                color = [NSColor systemOrangeColor];
+            } else {
+                color = [NSColor systemRedColor];
+            }
+        }
+
+        // 상단바 작은 22x22 아이콘에서 확실하게 보이도록 머리 오프셋을 5.5pt로 설정
+        CGFloat forwardShift = (1.0 - p) * 5.5; 
+        CGFloat downShift = (1.0 - p) * 1.5;
+        CGFloat headRad = 3.6;
+        CGFloat headCenterX = 8.5 + forwardShift;
+        CGFloat headCenterY = 14.5 - downShift;
+
+        // 1. 머리 실루엣
+        NSBezierPath *head = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(headCenterX - headRad, headCenterY - headRad, headRad * 2, headRad * 2)];
+        [color setFill];
+        [head fill];
+
+        // 2. 등 & 목 실루엣 (옆모습)
+        NSBezierPath *body = [NSBezierPath bezierPath];
+        // 뒤통수 아래 목 뒷선 시작
+        [body moveToPoint:NSMakePoint(headCenterX - 2.8, headCenterY - 1.5)];
+
+        // 등 곡선: 거북목일수록 등이 둥글게 굽음
+        CGFloat backBend = (1.0 - p) * 3.5;
+        [body curveToPoint:NSMakePoint(4.0, 2.5)
+             controlPoint1:NSMakePoint(6.0 - backBend, 9.0)
+             controlPoint2:NSMakePoint(4.0, 5.5)];
+
+        // 몸통 바닥
+        [body lineToPoint:NSMakePoint(15.0, 2.5)];
+
+        // 가슴 -> 목 앞쪽선
+        [body curveToPoint:NSMakePoint(headCenterX + 2.2, headCenterY - 2.0)
+             controlPoint1:NSMakePoint(14.0, 6.5)
+             controlPoint2:NSMakePoint(headCenterX + 2.0, 9.5)];
+
+        [body closePath];
+        [body fill];
+
+        // 타이머 동작 시 미니 원형 프로그레스 링
+        if (timerActive) {
+            NSBezierPath *ringBg = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(1.0, 1.0, 20, 20)];
+            [[color colorWithAlphaComponent:0.25] setStroke];
+            ringBg.lineWidth = 1.2;
+            [ringBg stroke];
+        }
+
+        return YES;
+    }];
+
+    [image setTemplate:!timerActive];
+    self.statusItem.button.image = image;
 }
 
 - (void)togglePopover:(id)sender {
@@ -75,78 +175,23 @@
     }
 }
 
-// 메뉴바 아이콘 드로잉 (사람 옆모습 실루엣: 1.0=정자세, 0.0=거북목)
-- (void)updateMenuBarIconWithProgress:(double)progress isTimerActive:(BOOL)timerActive {
-    NSImage *image = [NSImage imageWithSize:NSMakeSize(20, 20) flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
-        NSColor *color = [NSColor controlTextColor];
-        if (timerActive) {
-            if (progress > 0.65) {
-                color = [NSColor controlTextColor];
-            } else if (progress > 0.3) {
-                color = [NSColor orangeColor];
-            } else {
-                color = [NSColor systemRedColor];
-            }
-        }
-
-        // 1. 머리 (원)
-        CGFloat fwd = (1.0 - progress) * 4.0;
-        CGFloat rad = 3.6;
-        CGFloat headX = 9.0 + fwd;
-        CGFloat headY = 13.5;
-
-        NSBezierPath *head = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(headX - rad, headY - rad, rad * 2, rad * 2)];
-        [color setFill];
-        [head fill];
-
-        // 2. 목 & 등 (옆모습 실루엣)
-        NSBezierPath *body = [NSBezierPath bezierPath];
-        [body moveToPoint:NSMakePoint(headX - 2.5, headY - 2.0)];
-        
-        // 등 곡선
-        CGFloat backBend = (1.0 - progress) * 2.5;
-        [body curveToPoint:NSMakePoint(4.5, 2.0)
-             controlPoint1:NSMakePoint(6.0 - backBend, 8.5)
-             controlPoint2:NSMakePoint(4.5, 5.0)];
-
-        // 바닥
-        [body lineToPoint:NSMakePoint(14.0, 2.0)];
-
-        // 가슴 -> 턱 밑
-        [body curveToPoint:NSMakePoint(headX + 2.0, headY - 2.0)
-             controlPoint1:NSMakePoint(13.0, 6.0)
-             controlPoint2:NSMakePoint(headX + 1.5, 9.0)];
-
-        [body closePath];
-        [body fill];
-
-        // 타이머 활성화 시 주변 링
-        if (timerActive) {
-            NSBezierPath *ringBg = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(0.5, 0.5, 19, 19)];
-            [[color colorWithAlphaComponent:0.25] setStroke];
-            ringBg.lineWidth = 1.2;
-            [ringBg stroke];
-        }
-
-        return YES;
-    }];
-
-    [image setTemplate:!timerActive]; // 타이머 없을 땐 템플릿(다크모드 자동 대응)
-    self.statusItem.button.image = image;
-}
-
 #pragma mark - WKScriptMessageHandler
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
     if (![message.body isKindOfClass:[NSDictionary class]]) return;
     NSDictionary *data = message.body;
     NSString *action = data[@"action"];
 
-    if ([action isEqualToString:@"updateIcon"]) {
-        double progress = [data[@"progress"] doubleValue];
-        BOOL timerActive = [data[@"timerActive"] boolValue];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self updateMenuBarIconWithProgress:progress isTimerActive:timerActive];
-        });
+    if ([action isEqualToString:@"syncTimerState"]) {
+        // 웹 UI에서 타이머 상태 변경 시 네이티브 동기화
+        self.isTimerActive = [data[@"timerActive"] boolValue];
+        self.totalTimerSeconds = [data[@"totalSeconds"] doubleValue];
+        self.remainingSeconds = [data[@"remainingSeconds"] doubleValue];
+        if (!self.isTimerActive) {
+            self.idleElapsed = 0;
+        }
+    } else if ([action isEqualToString:@"resetPosture"]) {
+        self.idleElapsed = 0;
+        self.currentProgress = 1.0;
     } else if ([action isEqualToString:@"sendNotification"]) {
         NSString *title = data[@"title"] ?: @"⚠️ 거북목 주의!";
         NSString *body = data[@"body"] ?: @"턱을 당기고 가슴을 펴주세요.";
